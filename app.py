@@ -1,13 +1,47 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
+import openai
 import yfinance as yf
+import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
-from datetime import datetime
-from typing import Dict, Optional
-import os
-import re
+from datetime import datetime, timedelta
+
+openai.api_key = st.secrets["openai"]["api_key"]
+
+st.title("StockSense Chatbot")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+if prompt := st.chat_input("Ask about stocks, e.g., 'Analyze AAPL'"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        # Fetch stock data
+        if "analyze" in prompt.lower() or any(t in prompt.lower() for t in ["price", "stock"]):
+            ticker = prompt.upper().split()[-1] if prompt.upper().split()[-1].isalpha() else "AAPL"
+            data = yf.download(ticker, period="1y")
+            if not data.empty:
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close']))
+                st.plotly_chart(fig, use_container_width=True)
+                analysis = f"{ticker} latest close: ${data['Close'][-1]:.2f}. 1Y high: ${data['High'].max():.2f}."
+            else:
+                analysis = "Invalid ticker."
+        else:
+            analysis = "Stock query detected."
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages] + [{"role": "user", "content": prompt + "\nAnalysis: " + analysis}]
+        ).choices[0].message.content
+        st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 COMPANIES = {
